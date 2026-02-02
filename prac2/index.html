@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Practical 2</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial;
+      text-align: center;
+    }
+    #status {
+      color: green;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    #result {
+      font-size: 22px;
+      margin-top: 15px;
+      color: blue;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Digit Recognition using Neural Network (MNIST)</h2>
+
+  <p id="status">Training model...</p>
+  <p id="result"></p>
+
+  <script>
+    async function run() {
+
+      // Generate dummy MNIST-like data (lab demo purpose)
+      const xs = tf.randomNormal([1000, 784]);
+      const ys = tf.oneHot(
+        tf.randomUniform([1000], 0, 10, "int32"),
+        10
+      );
+
+      // Create model
+      const model = tf.sequential();
+      model.add(tf.layers.dense({
+        inputShape: [784],
+        units: 128,
+        activation: "relu"
+      }));
+      model.add(tf.layers.dense({
+        units: 10,
+        activation: "softmax"
+      }));
+
+      model.compile({
+        optimizer: "adam",
+        loss: "categoricalCrossentropy",
+        metrics: ["accuracy"]
+      });
+
+      // Train
+      await model.fit(xs, ys, {
+        epochs: 3,
+        batchSize: 128,
+        verbose: 0
+      });
+
+      // ✔ Show training done
+      document.getElementById("status").innerText = "Model trained ✔";
+
+      // Test prediction
+      const testSample = tf.randomNormal([1, 784]);
+      const prediction = model.predict(testSample);
+
+      const predictedDigit = prediction.argMax(-1).dataSync()[0];
+
+      // 🔵 Show prediction on screen
+      document.getElementById("result").innerText =
+        "Predicted Digit: " + predictedDigit;
+
+      // Console output (for lab requirement)
+      console.log("Prediction probabilities:");
+      prediction.print();
+    }
+
+    run();
+  </script>
+</body>
+</html>
