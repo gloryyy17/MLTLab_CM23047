@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lab 3 - Predict Unseen Values</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+</head>
+<body>
+
+<h2>Lab 3: Predict Unseen Input</h2>
+
+<button onclick="train()">Train Model</button>
+
+<br><br>
+
+<label>Enter Value:</label>
+<input type="number" id="inputVal" value="15">
+<button onclick="predict()">Predict</button>
+
+<h3 id="output"></h3>
+
+<script>
+
+let model;
+
+const xs = tf.tensor2d([1,2,3,4,5,6,7,8,9,10],[10,1]);
+const ys = tf.tensor2d([3,5,7,9,11,13,15,17,19,21],[10,1]);
+
+async function train() {
+
+  model = tf.sequential();
+  model.add(tf.layers.dense({units:1, inputShape:[1]}));
+
+  model.compile({
+    optimizer: tf.train.sgd(0.1),
+    loss: 'meanSquaredError'
+  });
+
+  await model.fit(xs, ys, {epochs:50});
+  alert("Model Trained");
+}
+
+function predict() {
+
+  const val = parseFloat(document.getElementById("inputVal").value);
+  const input = tf.tensor2d([val],[1,1]);
+  const output = model.predict(input);
+
+  document.getElementById("output").innerText =
+    "Predicted: " + output.dataSync() +
+    " | Expected (2x+1): " + (2*val+1);
+}
+</script>
+
+</body>
+</html>
