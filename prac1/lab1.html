@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lab 1 - Regression Training</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<h2>Lab 1: Train Regression Model</h2>
+<button onclick="train()">Train Model</button>
+
+<canvas id="chart" width="600" height="400"></canvas>
+
+<script>
+const xs = tf.tensor2d([1,2,3,4,5,6,7,8,9,10],[10,1]);
+const ys = tf.tensor2d([3,5,7,9,11,13,15,17,19,21],[10,1]);
+
+let model;
+let chart;
+
+async function train() {
+
+  model = tf.sequential();
+  model.add(tf.layers.dense({units:1, inputShape:[1]}));
+
+  model.compile({
+    optimizer: tf.train.sgd(0.1),
+    loss: 'meanSquaredError'
+  });
+
+  await model.fit(xs, ys, {epochs: 50});
+
+  const preds = model.predict(xs).dataSync();
+  const actual = ys.dataSync();
+
+  if(chart) chart.destroy();
+
+  chart = new Chart(document.getElementById("chart"), {
+    type: 'line',
+    data: {
+      labels: [1,2,3,4,5,6,7,8,9,10],
+      datasets: [
+        {label:"Actual", data: actual},
+        {label:"Predicted", data: preds}
+      ]
+    }
+  });
+
+  alert("Training Completed");
+}
+</script>
+
+</body>
+</html>

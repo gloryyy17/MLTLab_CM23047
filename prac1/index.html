@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Practical 1</title>
+
+  <!-- TensorFlow.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    #status {
+      font-weight: bold;
+      color: green;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Linear Regression with Synthetic Data</h2>
+  <p id="status">Training model...</p>
+
+  <canvas id="chart"></canvas>
+
+  <script>
+    async function run() {
+
+      // Generate synthetic data
+      const xs = [];
+      const ys = [];
+
+      for (let i = 0; i < 50; i++) {
+        const x = Math.random() * 10;
+        const y = 2 * x + 1 + (Math.random() - 0.5);
+        xs.push(x);
+        ys.push(y);
+      }
+
+      const xTensor = tf.tensor2d(xs, [xs.length, 1]);
+      const yTensor = tf.tensor2d(ys, [ys.length, 1]);
+
+      // Create model
+      const model = tf.sequential();
+      model.add(tf.layers.dense({ units: 1, inputShape: [1] }));
+
+      model.compile({
+        optimizer: tf.train.sgd(0.01),
+        loss: 'meanSquaredError'
+      });
+
+      // Train model
+      await model.fit(xTensor, yTensor, {
+        epochs: 100,
+        verbose: 0
+      });
+
+      // ✔ Model trained indicator
+      document.getElementById("status").innerText = "Model trained ✔";
+
+      // 🔍 Console testing (AUTOMATIC)
+      console.log("Testing model with x = 8");
+      model.predict(tf.tensor2d([8], [1, 1])).print();
+
+      // Plot
+      const xLine = [];
+      const yLine = [];
+
+      for (let i = 0; i <= 10; i += 0.5) {
+        xLine.push(i);
+        yLine.push(
+          model.predict(tf.tensor2d([i], [1, 1])).dataSync()[0]
+        );
+      }
+
+      new Chart(document.getElementById("chart"), {
+        type: 'scatter',
+        data: {
+          datasets: [
+            {
+              label: 'Training Data',
+              data: xs.map((x, i) => ({ x: x, y: ys[i] })),
+              backgroundColor: 'blue'
+            },
+            {
+              label: 'Regression Line',
+              type: 'line',
+              data: xLine.map((x, i) => ({ x: x, y: yLine[i] })),
+              borderColor: 'red',
+              fill: false
+            }
+          ]
+        }
+      });
+    }
+
+    run();
+  </script>
+</body>
+</html>
