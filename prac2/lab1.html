@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lab 1 - MobileNet Classification</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+  <style>
+    body { font-family: Arial; text-align: center; background: #111; color: white; }
+    img { width: 300px; margin-top: 20px; }
+    button { padding: 10px 20px; margin-top: 15px; }
+  </style>
+</head>
+<body>
+
+<h2>MobileNet Image Classification (Top 3)</h2>
+
+<input type="file" id="imageUpload">
+<br>
+<img id="preview"/>
+<br>
+<button onclick="predict()">Predict</button>
+
+<div id="result"></div>
+
+<script>
+let model;
+
+async function loadModel() {
+  model = await mobilenet.load();
+  console.log("MobileNet Loaded");
+}
+loadModel();
+
+document.getElementById('imageUpload').addEventListener('change', function(e){
+  const reader = new FileReader();
+  reader.onload = function(){
+    document.getElementById('preview').src = reader.result;
+  }
+  reader.readAsDataURL(e.target.files[0]);
+});
+
+async function predict() {
+  const img = document.getElementById('preview');
+  const predictions = await model.classify(img);
+  
+  let output = "<h3>Top 3 Predictions:</h3>";
+  predictions.slice(0,3).forEach(p => {
+    output += `<p>${p.className} - ${(p.probability*100).toFixed(2)}%</p>`;
+  });
+  
+  document.getElementById("result").innerHTML = output;
+}
+</script>
+
+</body>
+</html>
