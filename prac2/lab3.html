@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lab 3 - MobileNet vs ResNet</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/resnet"></script>
+  <style>
+    body { text-align:center; font-family: Arial; background:#000; color:white; }
+    img { width:300px; margin:20px; }
+    button { padding:10px 20px; }
+  </style>
+</head>
+<body>
+
+<h2>Compare MobileNet & ResNet</h2>
+
+<input type="file" id="imageUpload">
+<br>
+<img id="preview">
+<br>
+<button onclick="compare()">Compare Models</button>
+
+<div id="output"></div>
+
+<script>
+let mobileModel, resnetModel;
+
+async function loadModels(){
+  mobileModel = await mobilenet.load();
+  resnetModel = await resnet.load();
+}
+loadModels();
+
+document.getElementById('imageUpload').addEventListener('change', function(e){
+  const reader = new FileReader();
+  reader.onload = function(){
+    document.getElementById('preview').src = reader.result;
+  }
+  reader.readAsDataURL(e.target.files[0]);
+});
+
+async function compare(){
+  const img = document.getElementById("preview");
+
+  const mobilePred = await mobileModel.classify(img);
+  const resnetPred = await resnetModel.classify(img);
+
+  document.getElementById("output").innerHTML = `
+    <h3>MobileNet:</h3>
+    <p>${mobilePred[0].className} - ${(mobilePred[0].probability*100).toFixed(2)}%</p>
+    <h3>ResNet:</h3>
+    <p>${resnetPred[0].className} - ${(resnetPred[0].probability*100).toFixed(2)}%</p>
+  `;
+}
+</script>
+
+</body>
+</html>
