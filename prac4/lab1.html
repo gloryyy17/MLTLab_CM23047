@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lab 1 - CNN Training MNIST</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+</head>
+<body>
+
+<h2>Lab 1: Train CNN on MNIST (5 Epochs)</h2>
+<div id="output"></div>
+
+<script>
+async function loadMnist() {
+  const response = await fetch(
+    "https://storage.googleapis.com/tfjs-examples/mnist-data/mnist.json"
+  );
+  return await response.json();
+}
+
+async function trainCNN() {
+  const data = await loadMnist();
+
+  const trainImages = tf.tensor4d(data.trainImages, [60000, 28, 28, 1]);
+  const trainLabels = tf.tensor2d(data.trainLabels, [60000, 10]);
+  const testImages = tf.tensor4d(data.testImages, [10000, 28, 28, 1]);
+  const testLabels = tf.tensor2d(data.testLabels, [10000, 10]);
+
+  const model = tf.sequential();
+
+  model.add(tf.layers.conv2d({
+    inputShape: [28,28,1],
+    filters: 8,
+    kernelSize: 5,
+    activation: "relu"
+  }));
+
+  model.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+  model.add(tf.layers.flatten());
+  model.add(tf.layers.dense({ units: 32, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 10, activation: "softmax" }));
+
+  model.compile({
+    optimizer: "adam",
+    loss: "categoricalCrossentropy",
+    metrics: ["accuracy"]
+  });
+
+  await model.fit(trainImages, trainLabels, {
+    epochs: 5,
+    validationData: [testImages, testLabels],
+    callbacks: {
+      onEpochEnd: (epoch, logs) => {
+        document.getElementById("output").innerHTML += 
+          `Epoch ${epoch+1} Accuracy: ${logs.acc.toFixed(4)}<br>`;
+      }
+    }
+  });
+
+  const evalResult = model.evaluate(testImages, testLabels);
+  const finalAcc = (await evalResult[1].data())[0];
+
+  document.getElementById("output").innerHTML += 
+    `<br><b>Final Test Accuracy: ${finalAcc.toFixed(4)}</b>`;
+}
+
+trainCNN();
+</script>
+
+</body>
+</html>
