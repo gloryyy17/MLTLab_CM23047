@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Practical 4</title>
+
+  <!-- TensorFlow.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+
+  <!-- MobileNet Model CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center
+      background-color: #f4f4f4;
+      padding: 20px;
+    }
+
+    img {
+      margin-top: 20px;
+      max-width: 300px;
+      border-radius: 10px;
+    }
+
+    button {
+      padding: 10px 15px;
+      margin-top: 15px;
+      cursor: pointer;
+    }
+
+    #results {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>Practical 4: Image Classification using MobileNet</h2>
+
+<input type="file" id="imageUpload" accept="image/*">
+<br>
+
+<img id="preview" />
+
+<br>
+<button onclick="classifyImage()">Classify Image</button>
+
+<div id="results"></div>
+
+<script>
+
+let model;
+
+// Load MobileNet
+async function loadModel() {
+  model = await mobilenet.load();
+  document.getElementById("results").innerHTML = 
+    "<b>MobileNet Loaded Successfully!</b>";
+}
+
+loadModel();
+
+// Preview uploaded image
+document.getElementById("imageUpload").addEventListener("change", function(event) {
+  const reader = new FileReader();
+  reader.onload = function() {
+    document.getElementById("preview").src = reader.result;
+  };
+  reader.readAsDataURL(event.target.files[0]);
+});
+
+// Classify image
+async function classifyImage() {
+  const image = document.getElementById("preview");
+
+  if (!image.src) {
+    alert("Please upload an image first!");
+    return;
+  }
+
+  const predictions = await model.classify(image);
+
+  let resultHTML = "<h3>Predictions:</h3>";
+
+  predictions.forEach(pred => {
+    resultHTML += `
+      ${pred.className} - 
+      ${(pred.probability * 100).toFixed(2)}% <br>
+    `;
+  });
+
+  document.getElementById("results").innerHTML = resultHTML;
+}
+
+</script>
+
+</body>
+</html>
