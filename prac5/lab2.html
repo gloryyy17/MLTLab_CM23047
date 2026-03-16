@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Advanced Webcam Object Classification</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+<style>
+
+body{
+font-family:Arial;
+text-align:center;
+background:#f5f5f5;
+}
+
+#container{
+position:relative;
+display:inline-block;
+}
+
+video{
+border:3px solid black;
+border-radius:10px;
+}
+
+#label{
+position:absolute;
+top:10px;
+left:10px;
+background:rgba(255,0,0,0.8);
+color:white;
+padding:8px;
+font-size:18px;
+border-radius:5px;
+}
+
+#fps{
+margin-top:10px;
+font-size:18px;
+font-weight:bold;
+}
+
+</style>
+</head>
+
+<body>
+
+<h2>Advanced Webcam Object Classification</h2>
+
+<div id="container">
+<video id="webcam" width="640" height="480" autoplay></video>
+<div id="label">Loading model...</div>
+</div>
+
+<div id="fps">FPS: --</div>
+
+<script>
+
+const webcam = document.getElementById("webcam");
+const label = document.getElementById("label");
+const fpsDisplay = document.getElementById("fps");
+
+let model;
+
+let frameCount = 0;
+let startTime = performance.now();
+
+// store predictions for smoothing
+let predictionHistory = [];
+
+async function setupCamera(){
+
+const stream = await navigator.mediaDevices.getUserMedia({
+video:true
+});
+
+webcam.srcObject = stream;
+
+}
+
+async function loadModel(){
+
+model = await mobilenet.load({
+version:2,
+alpha:1.0
+});
+
+label.innerHTML="Model Loaded";
+
+detect();
+
+}
+
+function smoothPrediction(pred){
+
+predictionHistory.push(pred);
+
+if(predictionHistory.length > 5){
+predictionHistory.shift();
+}
+
+let avg = predictionHistory.reduce((a,b)=>a+b)/predictionHistory.length;
+
+return avg;
+
+}
+
+async function detect(){
+
+while(true){
+
+const predictions = await model.classify(webcam);
+
+let confidence = smoothPrediction(predictions[0].probability);
+
+label.innerHTML =
+predictions[0].className +
+"<br>" +
+(confidence*100).toFixed(2) + "%";
+
+frameCount++;
+
+let now = performance.now();
+let elapsed = (now - startTime)/1000;
+
+let fps = (frameCount/elapsed).toFixed(2);
+
+fpsDisplay.innerHTML = "FPS: " + fps;
+
+await tf.nextFrame();
+
+}
+
+}
+
+setupCamera();
+loadModel();
+
+</script>
+
+</body>
+</html>
