@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Webcam Object Detection</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+<style>
+body{
+font-family:Arial;
+text-align:center;
+}
+
+video{
+border:3px solid black;
+}
+
+canvas{
+position:absolute;
+left:50%;
+transform:translateX(-50%);
+}
+</style>
+</head>
+
+<body>
+
+<h2>Real-Time Object Detection</h2>
+
+<div style="position:relative; display:inline-block;">
+<video id="webcam" width="640" height="480" autoplay></video>
+<canvas id="canvas" width="640" height="480"></canvas>
+</div>
+
+<script>
+
+const video = document.getElementById("webcam");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let model;
+
+async function setupCamera(){
+
+const stream = await navigator.mediaDevices.getUserMedia({
+video:true
+});
+
+video.srcObject = stream;
+
+return new Promise(resolve=>{
+video.onloadedmetadata = ()=>{
+resolve(video);
+};
+});
+
+}
+
+async function detectObjects(){
+
+const predictions = await model.detect(video);
+
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+predictions.forEach(pred =>{
+
+const [x,y,width,height] = pred.bbox;
+
+ctx.strokeStyle="red";
+ctx.lineWidth=3;
+ctx.strokeRect(x,y,width,height);
+
+ctx.font="18px Arial";
+ctx.fillStyle="red";
+
+ctx.fillText(
+pred.class + " " + Math.round(pred.score*100) + "%",
+x,
+y>10?y-5:10
+);
+
+});
+
+requestAnimationFrame(detectObjects);
+
+}
+
+async function main(){
+
+await setupCamera();
+
+model = await cocoSsd.load();
+
+detectObjects();
+
+}
+
+main();
+
+</script>
+
+</body>
+</html>
