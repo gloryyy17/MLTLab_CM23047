@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>PoseNet Demo</title>
+  <!-- Use exact pinned versions that are known to work together -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet@2.2.2/dist/posenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #111; color: #fff;
+      font-family: sans-serif;
+      display: flex; flex-direction: column;
+      align-items: center; padding: 20px;
+    }
+    h1 { font-size: 20px; font-weight: 500; margin-bottom: 8px; }
+    #status {
+      font-size: 13px; color: #ffcc00;
+      margin-bottom: 12px; text-align: center;
+    }
+    #error-box {
+      display: none;
+      background: #3a0000; border: 1px solid #ff4444;
+      color: #ff8888; font-size: 12px;
+      padding: 10px 14px; border-radius: 6px;
+      margin-bottom: 12px; max-width: 640px;
+      font-family: monospace; white-space: pre-wrap;
+    }
+    #container {
+      position: relative; width: 640px; height: 480px;
+    }
+    video, canvas {
+      position: absolute; top: 0; left: 0;
+      width: 640px; height: 480px;
+      border-radius: 8px;
+      transform: scaleX(-1);
+    }
+    #info { margin-top: 12px; font-size: 12px; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>PoseNet — Pose Detection</h1>
+  <p id="status">Initialising...</p>
+  <div id="error-box"></div>
+
+  <div id="container">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+  </div>
+  <p id="info">Green dots = keypoints &nbsp;|&nbsp; Orange lines = skeleton</p>
+
+<script>
+const video  = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const errorBox = document.getElementById('error-box');
+
+canvas.width  = 640;
+canvas.height = 480;
+
+function setStatus(msg, color) {
+  statusEl.textContent = msg;
+  statusEl.style.color = color || '#ffcc00';
+}
+
+function showError(msg) {
+  errorBox.style.display = 'block';
+  errorBox.textContent = 'ERROR: ' + msg;
+  setStatus('Something went wrong — see error above.', '#ff4444');
+}
+
+// Skeleton: pairs of keypoint indices to connect
+const SKELETON = [
+  [5,6],[5,7],[7,9],[6,8],[8,10],
+  [5,11],[6,12],[11,12],
+  [11,13],[13,15],[12,14],[14,16]
+];
+
+// Step 1 — camera
+async function setupCamera() {
+  setStatus('Requesting camera permission...');
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480, facingMode: 'user' },
+    audio: false
+  });
+  video.srcObject = stream;
+  await new Promise(resolve => { video.onloadedmetadata = resolve; });
+  video.play();
+  setStatus('Camera ready. Loading model...');
+}
+
+// Step 2 — model
+async function loadModel() {
+  const net = await posenet.load({
+    architecture: 'MobileNetV1',
+    outputStride: 16,
+    inputResolution: { width: 640, height: 480 },
+    multiplier: 0.50   // lighter = faster on most laptops
+  });
+  return net;
+}
+
+// Drawing helpers
+function drawPoint(x, y) {
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = '#00FF88';
+  ctx.fill();
+  ctx.strokeStyle = '#007744';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function drawSkeleton(kps) {
+  ctx.strokeStyle = '#FF6B35';
+  ctx.lineWidth = 2.5;
+  SKELETON.forEach(([a, b]) => {
+    if (kps[a].score > 0.3 && kps[b].score > 0.3) {
+      ctx.beginPath();
+      ctx.moveTo(kps[a].position.x, kps[a].position.y);
+      ctx.lineTo(kps[b].position.x, kps[b].position.y);
+      ctx.stroke();
+    }
+  });
+}
+
+// Step 3 — detection loop
+function detectLoop(net) {
+  async function loop() {
+    try {
+      const pose = await net.estimateSinglePose(video, {
+        flipHorizontal: true   // mirror so coords match flipped video
+      });
+
+      ctx.clearRect(0, 0, 640, 480);
+      ctx.drawImage(video, 0, 0, 640, 480);
+
+      drawSkeleton(pose.keypoints);
+
+      pose.keypoints.forEach(kp => {
+        if (kp.score > 0.3) drawPoint(kp.position.x, kp.position.y);
+      });
+    } catch(e) {
+      console.warn('Frame error:', e);
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+// Main
+(async () => {
+  try {
+    // Guard: check posenet loaded
+    if (typeof posenet === 'undefined') {
+      throw new Error('posenet library did not load. Check your internet connection.');
+    }
+
+    await setupCamera();
+    const net = await loadModel();
+    setStatus('Detecting pose — stand in front of your camera!', '#00FF88');
+    detectLoop(net);
+  } catch(err) {
+    showError(err.message || String(err));
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>
