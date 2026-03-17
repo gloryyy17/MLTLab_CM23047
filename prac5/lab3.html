@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Lab3 FPS Measurement</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+<style>
+body{
+font-family:Arial;
+text-align:center;
+}
+
+video{
+border:3px solid black;
+}
+
+#info{
+margin-top:15px;
+font-size:18px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Lab3: Real-Time Inference FPS</h2>
+
+<video id="webcam" width="400" height="300" autoplay></video>
+
+<div id="info">Loading...</div>
+
+<script>
+
+const webcam = document.getElementById("webcam");
+const info = document.getElementById("info");
+
+let model;
+
+let frameCount = 0;
+let startTime = performance.now();
+
+async function setupCamera(){
+const stream = await navigator.mediaDevices.getUserMedia({video:true});
+webcam.srcObject = stream;
+}
+
+async function loadModel(){
+model = await mobilenet.load();
+run();
+}
+
+async function run(){
+
+while(true){
+
+await model.classify(webcam);
+
+frameCount++;
+
+let currentTime = performance.now();
+let elapsed = (currentTime - startTime)/1000;
+
+let fps = (frameCount/elapsed).toFixed(2);
+
+info.innerHTML = "FPS: " + fps;
+
+await tf.nextFrame();
+
+}
+
+}
+
+setupCamera();
+loadModel();
+
+</script>
+
+</body>
+</html>

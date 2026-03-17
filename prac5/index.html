@@ -1,104 +1,806 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Webcam Object Detection</title>
-
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VISIO — Real-Time Object Detection</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 <style>
-body{
-font-family:Arial;
-text-align:center;
-}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-video{
-border:3px solid black;
-}
+  :root {
+    --bg: #050508;
+    --surface: #0d0d14;
+    --panel: #12121c;
+    --border: rgba(255,255,255,0.07);
+    --accent: #00ff9d;
+    --accent2: #ff3cac;
+    --accent3: #7b61ff;
+    --text: #e8e8f0;
+    --muted: #5a5a72;
+    --danger: #ff4757;
+    --warn: #ffa502;
+  }
 
-canvas{
-position:absolute;
-left:50%;
-transform:translateX(-50%);
-}
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    overflow: hidden;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 9999; opacity: 0.6;
+  }
+
+  .app {
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    grid-template-columns: 1fr 320px;
+    height: 100vh;
+    gap: 0;
+  }
+
+  /* ── HEADER ── */
+  header {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: relative;
+    z-index: 10;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent3));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .logo span {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    -webkit-text-fill-color: var(--muted);
+    margin-left: 12px;
+    vertical-align: middle;
+  }
+
+  .status-bar {
+    display: flex; align-items: center; gap: 20px;
+  }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+  }
+
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .dot.live { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1.5s infinite; }
+  .dot.loading { background: var(--warn); animation: pulse 0.8s infinite; }
+  .dot.error { background: var(--danger); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .fps-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    min-width: 70px;
+    text-align: right;
+  }
+
+  /* ── MAIN VIDEO AREA ── */
+  .video-area {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+  video.visible { opacity: 1; }
+
+  canvas#overlay {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    transform: scaleX(-1);
+  }
+
+  /* Corner brackets */
+  .corner { position: absolute; width: 24px; height: 24px; z-index: 5; }
+  .corner.tl { top: 16px; left: 16px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+  .corner.tr { top: 16px; right: 16px; border-top: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+  .corner.bl { bottom: 16px; left: 16px; border-bottom: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+  .corner.br { bottom: 16px; right: 16px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+
+  /* Scan line */
+  .scanline {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+    animation: scan 3s linear infinite;
+    z-index: 4;
+  }
+  .scanline.active { opacity: 0.5; }
+
+  @keyframes scan {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+
+  /* Idle overlay */
+  .idle-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px;
+    background: radial-gradient(ellipse at center, rgba(0,255,157,0.05) 0%, transparent 70%);
+    z-index: 3;
+    transition: opacity 0.4s;
+  }
+  .idle-overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .idle-icon {
+    width: 64px; height: 64px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .idle-icon::after {
+    content: '';
+    position: absolute;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.3;
+  }
+  .idle-icon svg { z-index: 1; }
+
+  .idle-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  .start-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 28px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+  }
+  .start-btn:hover { background: #00e68a; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,255,157,0.3); }
+  .start-btn:active { transform: translateY(0); }
+  .start-btn:disabled { background: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title::after {
+    content: '';
+    flex: 1; height: 1px;
+    background: var(--border);
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+
+  .stat-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    line-height: 1;
+    color: var(--text);
+  }
+
+  .stat-value.accent { color: var(--accent); }
+  .stat-value.accent2 { color: var(--accent2); }
+
+  /* Detections list */
+  .detections-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 16px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .detection-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    border-left: 3px solid var(--accent3);
+    animation: slideIn 0.2s ease;
+    transition: border-color 0.2s;
+  }
+
+  .detection-item.high-conf { border-left-color: var(--accent); }
+  .detection-item.mid-conf { border-left-color: var(--warn); }
+  .detection-item.low-conf { border-left-color: var(--danger); }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .det-name {
+    font-weight: 500;
+    font-size: 14px;
+    text-transform: capitalize;
+  }
+
+  .det-conf {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+  }
+
+  .det-bar {
+    width: 100%;
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+
+  .det-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent3), var(--accent));
+    border-radius: 1px;
+    transition: width 0.3s;
+  }
+
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    text-align: center;
+    gap: 12px;
+    line-height: 1.8;
+  }
+
+  /* Controls */
+  .controls-panel {
+    padding: 14px 16px;
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .control-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+  }
+
+  .control-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  .control-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    min-width: 36px;
+    text-align: right;
+  }
+
+  .stop-btn {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    border-radius: 4px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: none;
+  }
+  .stop-btn:hover { background: rgba(255,71,87,0.1); }
+  .stop-btn.visible { display: block; }
+
+  /* History chips */
+  .history-wrap {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    min-height: 60px;
+  }
+
+  .history-chips {
+    display: flex; flex-wrap: wrap; gap: 5px;
+  }
+
+  .chip {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 100px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Loading model indicator */
+  .model-loading {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--warn);
+    background: rgba(13,13,20,0.9);
+    padding: 8px 16px;
+    border-radius: 100px;
+    border: 1px solid rgba(255,165,2,0.3);
+    white-space: nowrap;
+    z-index: 10;
+    display: none;
+  }
+  .model-loading.visible { display: block; animation: blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.5} }
 </style>
 </head>
-
 <body>
+<div class="app">
 
-<h2>Real-Time Object Detection</h2>
+  <!-- HEADER -->
+  <header>
+    <div class="logo">VISIO <span>// OBJECT DETECTION v2.0</span></div>
+    <div class="status-bar">
+      <div class="status-pill">
+        <div class="dot" id="statusDot"></div>
+        <span id="statusText">OFFLINE</span>
+      </div>
+      <div class="fps-badge" id="fpsBadge">— FPS</div>
+    </div>
+  </header>
 
-<div style="position:relative; display:inline-block;">
-<video id="webcam" width="640" height="480" autoplay></video>
-<canvas id="canvas" width="640" height="480"></canvas>
+  <!-- MAIN VIDEO -->
+  <div class="video-area">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <div class="scanline" id="scanline"></div>
+
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+
+    <div class="idle-overlay" id="idleOverlay">
+      <div class="idle-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+          <polyline points="10 17 15 12 10 7"/>
+          <line x1="15" y1="12" x2="3" y2="12"/>
+        </svg>
+      </div>
+      <div class="idle-text">
+        TENSORFLOW.JS · COCO-SSD MODEL<br>
+        80+ OBJECT CLASSES · REAL-TIME
+      </div>
+      <button class="start-btn" id="startBtn" onclick="startDetection()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16" fill="#000"/></svg>
+        ACTIVATE CAMERA
+      </button>
+    </div>
+
+    <div class="model-loading" id="modelLoading">⚡ LOADING NEURAL MODEL...</div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Stats -->
+    <div class="panel">
+      <div class="panel-title">Metrics</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Objects</div>
+          <div class="stat-value accent" id="statObjects">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Frames</div>
+          <div class="stat-value" id="statFrames">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Conf</div>
+          <div class="stat-value accent2" id="statConf">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Classes</div>
+          <div class="stat-value" id="statClasses">0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Seen objects history -->
+    <div class="history-wrap">
+      <div class="panel-title">Seen Objects</div>
+      <div class="history-chips" id="historyChips"></div>
+    </div>
+
+    <!-- Live detections -->
+    <div class="panel-title" style="padding: 12px 16px 4px; margin-bottom:0">Live Feed</div>
+    <div class="detections-list" id="detectionsList">
+      <div class="empty-state">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        Activate camera to<br>begin object detection
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls-panel">
+      <div class="panel-title" style="margin-bottom:8px">Controls</div>
+      <div class="control-row">
+        <span class="control-label">Threshold</span>
+        <input type="range" id="thresholdSlider" min="10" max="95" value="40" oninput="updateThreshold(this.value)">
+        <span class="control-val" id="thresholdVal">40%</span>
+      </div>
+      <div class="control-row">
+        <span class="control-label">Max Det.</span>
+        <input type="range" id="maxDetSlider" min="1" max="20" value="10" oninput="updateMaxDet(this.value)">
+        <span class="control-val" id="maxDetVal">10</span>
+      </div>
+      <button class="stop-btn" id="stopBtn" onclick="stopDetection()">■ STOP CAMERA</button>
+    </div>
+  </div>
 </div>
 
 <script>
+let model = null;
+let stream = null;
+let animId = null;
+let isRunning = false;
+let threshold = 0.40;
+let maxDet = 10;
+let frameCount = 0;
+let fpsStart = Date.now();
+let fps = 0;
+let seenObjects = new Set();
+let uniqueClasses = new Set();
 
-const video = document.getElementById("webcam");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d');
 
-let model;
+// Palette for different classes
+const palette = [
+  '#00ff9d','#ff3cac','#7b61ff','#00d4ff',
+  '#ffa502','#ff6b6b','#a8ff3e','#ff9f43',
+  '#48dbfb','#ff9ff3','#54a0ff','#5f27cd'
+];
 
-async function setupCamera(){
-
-const stream = await navigator.mediaDevices.getUserMedia({
-video:true
-});
-
-video.srcObject = stream;
-
-return new Promise(resolve=>{
-video.onloadedmetadata = ()=>{
-resolve(video);
-};
-});
-
+function getColor(label) {
+  let hash = 0;
+  for (let c of label) hash = (hash * 31 + c.charCodeAt(0)) % palette.length;
+  return palette[hash];
 }
 
-async function detectObjects(){
-
-const predictions = await model.detect(video);
-
-ctx.clearRect(0,0,canvas.width,canvas.height);
-
-predictions.forEach(pred =>{
-
-const [x,y,width,height] = pred.bbox;
-
-ctx.strokeStyle="red";
-ctx.lineWidth=3;
-ctx.strokeRect(x,y,width,height);
-
-ctx.font="18px Arial";
-ctx.fillStyle="red";
-
-ctx.fillText(
-pred.class + " " + Math.round(pred.score*100) + "%",
-x,
-y>10?y-5:10
-);
-
-});
-
-requestAnimationFrame(detectObjects);
-
+function setStatus(state, text) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  dot.className = 'dot ' + state;
+  txt.textContent = text;
 }
 
-async function main(){
-
-await setupCamera();
-
-model = await cocoSsd.load();
-
-detectObjects();
-
+async function loadModel() {
+  document.getElementById('modelLoading').classList.add('visible');
+  setStatus('loading', 'LOADING MODEL');
+  try {
+    model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+    document.getElementById('modelLoading').classList.remove('visible');
+    return true;
+  } catch(e) {
+    document.getElementById('modelLoading').classList.remove('visible');
+    setStatus('error', 'MODEL FAILED');
+    return false;
+  }
 }
 
-main();
+async function startDetection() {
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = 'INITIALIZING...';
 
+  if (!model) {
+    const ok = await loadModel();
+    if (!ok) { btn.disabled = false; btn.textContent = 'ACTIVATE CAMERA'; return; }
+  }
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    video.classList.add('visible');
+
+    document.getElementById('idleOverlay').classList.add('hidden');
+    document.getElementById('scanline').classList.add('active');
+    document.getElementById('stopBtn').classList.add('visible');
+    setStatus('live', 'DETECTING');
+
+    isRunning = true;
+    frameCount = 0;
+    fpsStart = Date.now();
+    detectLoop();
+  } catch(e) {
+    setStatus('error', 'CAM DENIED');
+    btn.disabled = false;
+    btn.textContent = 'ACTIVATE CAMERA';
+    alert('Camera access denied. Please allow camera permissions.');
+  }
+}
+
+function stopDetection() {
+  isRunning = false;
+  if (animId) cancelAnimationFrame(animId);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  video.srcObject = null;
+  video.classList.remove('visible');
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  document.getElementById('idleOverlay').classList.remove('hidden');
+  document.getElementById('scanline').classList.remove('active');
+  document.getElementById('stopBtn').classList.remove('visible');
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('startBtn').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16" fill="#000"/></svg> ACTIVATE CAMERA`;
+  document.getElementById('detectionsList').innerHTML = `<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Activate camera to<br>begin object detection</div>`;
+  document.getElementById('fpsBadge').textContent = '— FPS';
+  document.getElementById('statObjects').textContent = '0';
+  setStatus('', 'OFFLINE');
+}
+
+async function detectLoop() {
+  if (!isRunning || video.paused || video.ended) return;
+
+  // Sync canvas size
+  if (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight) {
+    overlay.width = video.videoWidth;
+    overlay.height = video.videoHeight;
+  }
+
+  // Detect
+  const preds = await model.detect(video, maxDet, threshold);
+
+  // FPS
+  frameCount++;
+  const now = Date.now();
+  const elapsed = (now - fpsStart) / 1000;
+  if (elapsed >= 1) {
+    fps = Math.round(frameCount / elapsed);
+    frameCount = 0;
+    fpsStart = now;
+    document.getElementById('fpsBadge').textContent = fps + ' FPS';
+  }
+
+  // Draw
+  drawDetections(preds);
+  updateSidebar(preds);
+
+  if (isRunning) animId = requestAnimationFrame(detectLoop);
+}
+
+function drawDetections(preds) {
+  const w = overlay.width, h = overlay.height;
+  ctx.clearRect(0, 0, w, h);
+
+  for (const pred of preds) {
+    const [x, y, bw, bh] = pred.bbox;
+    const color = getColor(pred.class);
+    const conf = Math.round(pred.score * 100);
+
+    // Glow box
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, bw, bh);
+    ctx.restore();
+
+    // Corner marks
+    const cs = 14;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    [[x,y],[x+bw,y],[x,y+bh],[x+bw,y+bh]].forEach(([cx,cy],i) => {
+      ctx.beginPath();
+      const dx = i%2 === 0 ? 1 : -1;
+      const dy = i < 2 ? 1 : -1;
+      ctx.moveTo(cx, cy + dy*cs); ctx.lineTo(cx, cy); ctx.lineTo(cx + dx*cs, cy);
+      ctx.stroke();
+    });
+
+    // Fill overlay
+    ctx.fillStyle = color + '18';
+    ctx.fillRect(x, y, bw, bh);
+
+    // Label pill
+    const label = `${pred.class.toUpperCase()} ${conf}%`;
+    ctx.font = 'bold 12px "Space Mono", monospace';
+    const tw = ctx.measureText(label).width;
+    const lx = x, ly = y > 24 ? y - 8 : y + bh + 20;
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(lx - 2, ly - 16, tw + 12, 20, 3);
+    ctx.fill();
+
+    ctx.fillStyle = '#000';
+    ctx.fillText(label, lx + 4, ly - 2);
+  }
+}
+
+function updateSidebar(preds) {
+  // Update stats
+  document.getElementById('statObjects').textContent = preds.length;
+  document.getElementById('statFrames').textContent = (parseInt(document.getElementById('statFrames').textContent) + 1) || 1;
+
+  if (preds.length > 0) {
+    const avgConf = Math.round(preds.reduce((s,p) => s + p.score, 0) / preds.length * 100);
+    document.getElementById('statConf').textContent = avgConf + '%';
+  }
+
+  // Track classes
+  preds.forEach(p => {
+    seenObjects.add(p.class);
+    uniqueClasses.add(p.class);
+  });
+  document.getElementById('statClasses').textContent = uniqueClasses.size;
+
+  // History chips
+  const chips = document.getElementById('historyChips');
+  chips.innerHTML = [...seenObjects].map(obj =>
+    `<div class="chip">${obj}</div>`
+  ).join('');
+
+  // Detection list
+  const list = document.getElementById('detectionsList');
+  if (preds.length === 0) {
+    list.innerHTML = `<div class="empty-state" style="padding:24px 20px">
+      <span style="font-size:18px">👁</span>
+      Scanning for objects...
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = [...preds]
+    .sort((a,b) => b.score - a.score)
+    .map(p => {
+      const conf = Math.round(p.score * 100);
+      const cls = conf >= 75 ? 'high-conf' : conf >= 50 ? 'mid-conf' : 'low-conf';
+      const color = getColor(p.class);
+      return `
+        <div class="detection-item ${cls}" style="border-left-color:${color}">
+          <div style="flex:1">
+            <div class="det-name">${p.class}</div>
+            <div class="det-bar"><div class="det-bar-fill" style="width:${conf}%;background:${color}"></div></div>
+          </div>
+          <div class="det-conf">${conf}%</div>
+        </div>`;
+    }).join('');
+}
+
+function updateThreshold(val) {
+  threshold = val / 100;
+  document.getElementById('thresholdVal').textContent = val + '%';
+}
+
+function updateMaxDet(val) {
+  maxDet = parseInt(val);
+  document.getElementById('maxDetVal').textContent = val;
+}
 </script>
-
 </body>
 </html>
