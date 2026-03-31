@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Squat Counter</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <style>
+    body { text-align: center; font-family: Arial; }
+    video, canvas { position: absolute; left: 0; top: 0; }
+    #container { position: relative; width: 640px; margin: auto; }
+    h1 { margin-top: 20px; }
+  </style>
+</head>
+
+<body>
+  <h1>🏋️ Squat Counter: <span id="count">0</span></h1>
+
+  <div id="container">
+    <video id="video" width="640" height="480" autoplay muted></video>
+    <canvas id="canvas" width="640" height="480"></canvas>
+  </div>
+
+<script>
+let detector;
+let count = 0;
+let stage = "up";
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+// 📸 Start webcam
+async function setupCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true
+  });
+  video.srcObject = stream;
+
+  return new Promise(resolve => {
+    video.onloadedmetadata = () => resolve(video);
+  });
+}
+
+// 🧠 Load MoveNet model
+async function loadModel() {
+  detector = await poseDetection.createDetector(
+    poseDetection.SupportedModels.MoveNet
+  );
+}
+
+// 📐 Calculate angle
+function getAngle(a, b, c) {
+  const ab = { x: a.x - b.x, y: a.y - b.y };
+  const cb = { x: c.x - b.x, y: c.y - b.y };
+
+  const dot = (ab.x * cb.x + ab.y * cb.y);
+  const magAB = Math.sqrt(ab.x**2 + ab.y**2);
+  const magCB = Math.sqrt(cb.x**2 + cb.y**2);
+
+  const angle = Math.acos(dot / (magAB * magCB));
+  return angle * (180 / Math.PI);
+}
+
+// 🔄 Main loop
+async function detectPose() {
+  const poses = await detector.estimatePoses(video);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (poses.length > 0) {
+    const keypoints = poses[0].keypoints;
+
+    // RIGHT LEG points
+    const hip = keypoints[12];
+    const knee = keypoints[14];
+    const ankle = keypoints[16];
+
+    if (hip.score > 0.5 && knee.score > 0.5 && ankle.score > 0.5) {
+
+      const angle = getAngle(hip, knee, ankle);
+
+      // 🟢 Draw points
+      [hip, knee, ankle].forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = "red";
+        ctx.fill();
+      });
+
+      // 📊 Squat logic
+      if (angle < 90) {
+        stage = "down";
+      }
+
+      if (angle > 160 && stage === "down") {
+        stage = "up";
+        count++;
+        document.getElementById("count").innerText = count;
+      }
+    }
+  }
+
+  requestAnimationFrame(detectPose);
+}
+
+// 🚀 Run everything
+async function main() {
+  await setupCamera();
+  await loadModel();
+  detectPose();
+}
+
+main();
+</script>
+
+</body>
+</html>
