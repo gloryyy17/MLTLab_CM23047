@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pose Accuracy Comparison</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+  <style>
+    body { font-family: Arial; text-align: center; }
+    video, canvas { position: absolute; left: 0; top: 0; }
+    #container { position: relative; width: 640px; margin: auto; }
+    .stats { margin-top: 500px; }
+  </style>
+</head>
+
+<body>
+
+<h2>🏋️ Pose Detection Accuracy Comparison</h2>
+
+<div id="container">
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
+</div>
+
+<div class="stats">
+  <h3>Single Pose</h3>
+  Count: <span id="singleCount">0</span> |
+  Confidence: <span id="singleConf">0</span>
+
+  <h3>Multi Pose</h3>
+  Count: <span id="multiCount">0</span> |
+  Confidence: <span id="multiConf">0</span>
+</div>
+
+<script>
+let singleDetector, multiDetector;
+
+let singleCount = 0, multiCount = 0;
+let singleStage = "up", multiStage = "up";
+
+let singleConfTotal = 0, multiConfTotal = 0;
+let frames = 0;
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+// 📸 Camera
+async function setupCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+  return new Promise(resolve => {
+    video.onloadedmetadata = () => resolve(video);
+  });
+}
+
+// 🧠 Load both models
+async function loadModels() {
+  singleDetector = await poseDetection.createDetector(
+    poseDetection.SupportedModels.MoveNet,
+    { modelType: "SINGLEPOSE_LIGHTNING" }
+  );
+
+  multiDetector = await poseDetection.createDetector(
+    poseDetection.SupportedModels.MoveNet,
+    { modelType: "MULTIPOSE_LIGHTNING" }
+  );
+}
+
+// 📐 Angle calculation
+function getAngle(a, b, c) {
+  const ab = { x: a.x - b.x, y: a.y - b.y };
+  const cb = { x: c.x - b.x, y: c.y - b.y };
+
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const magAB = Math.sqrt(ab.x**2 + ab.y**2);
+  const magCB = Math.sqrt(cb.x**2 + cb.y**2);
+
+  return Math.acos(dot / (magAB * magCB)) * (180 / Math.PI);
+}
+
+// 🏋️ Squat logic
+function processPose(pose, mode) {
+  const keypoints = pose.keypoints;
+
+  const hip = keypoints[12];
+  const knee = keypoints[14];
+  const ankle = keypoints[16];
+
+  if (hip.score > 0.5 && knee.score > 0.5 && ankle.score > 0.5) {
+
+    const angle = getAngle(hip, knee, ankle);
+
+    if (mode === "single") {
+      singleConfTotal += (hip.score + knee.score + ankle.score) / 3;
+
+      if (angle < 90) singleStage = "down";
+
+      if (angle > 160 && singleStage === "down") {
+        singleStage = "up";
+        singleCount++;
+      }
+
+    } else {
+      multiConfTotal += (hip.score + knee.score + ankle.score) / 3;
+
+      if (angle < 90) multiStage = "down";
+
+      if (angle > 160 && multiStage === "down") {
+        multiStage = "up";
+        multiCount++;
+      }
+    }
+  }
+}
+
+// 🔄 Main loop
+async function detect() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const singlePoses = await singleDetector.estimatePoses(video);
+  const multiPoses = await multiDetector.estimatePoses(video);
+
+  frames++;
+
+  // Single pose
+  if (singlePoses.length > 0) {
+    processPose(singlePoses[0], "single");
+  }
+
+  // Multi pose (take first person)
+  if (multiPoses.length > 0) {
+    processPose(multiPoses[0], "multi");
+  }
+
+  // Update UI
+  document.getElementById("singleCount").innerText = singleCount;
+  document.getElementById("multiCount").innerText = multiCount;
+
+  document.getElementById("singleConf").innerText =
+    (singleConfTotal / frames).toFixed(2);
+
+  document.getElementById("multiConf").innerText =
+    (multiConfTotal / frames).toFixed(2);
+
+  requestAnimationFrame(detect);
+}
+
+// 🚀 Start
+async function main() {
+  await setupCamera();
+  await loadModels();
+  detect();
+}
+
+main();
+</script>
+
+</body>
+</html>
