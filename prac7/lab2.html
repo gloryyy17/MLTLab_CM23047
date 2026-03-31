@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Reload Model & Predict</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; padding: 40px; text-align: center; background: #f0f8ff; }
+  button, input { font-size: 16px; padding: 10px 15px; margin: 10px 5px; border-radius: 8px; }
+  button { background: #28a745; border: none; color: white; cursor: pointer; }
+  input { border: 1.5px solid #aaa; width: 160px; }
+  #status, #result { margin-top: 20px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h2>Step 2: Reload Model and Predict</h2>
+<button id="reloadBtn">Reload Model from LocalStorage</button>
+<br>
+<input type="number" id="inputX" placeholder="Enter X value" />
+<button id="predictBtn" disabled>Predict</button>
+
+<div id="status">Status: Waiting to reload model...</div>
+<div id="result">Prediction: --</div>
+
+<script>
+  let model = null;
+  
+  async function reloadModel() {
+    const status = document.getElementById('status');
+    status.innerText = "Status: Loading model...";
+    try {
+      model = await tf.loadLayersModel('localstorage://my-tfjs-model');
+      status.innerText = "Status: Model loaded from LocalStorage!";
+      document.getElementById('predictBtn').disabled = false;
+    } catch (e) {
+      status.innerText = "Status: Failed to load model. Save it first.";
+      alert("No saved model found in LocalStorage.");
+    }
+  }
+  
+  function predict() {
+    const inputVal = parseFloat(document.getElementById('inputX').value);
+    if (isNaN(inputVal)) {
+      alert("Please enter a valid number");
+      return;
+    }
+    const inputTensor = tf.tensor2d([inputVal], [1, 1]);
+    const prediction = model.predict(inputTensor);
+    const output = prediction.dataSync()[0].toFixed(3);
+    document.getElementById('result').innerText = `Prediction: ${output}`;
+  }
+  
+  document.getElementById('reloadBtn').onclick = reloadModel;
+  document.getElementById('predictBtn').onclick = predict;
+</script>
+
+</body>
+</html>
