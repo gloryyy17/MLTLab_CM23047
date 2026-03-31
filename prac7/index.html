@@ -1,51 +1,32 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ML Model Test</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 </head>
 <body>
 
-<h2>Prediction Test</h2>
-
-<input type="number" id="inputValue" placeholder="Enter a number">
-<button onclick="predict()">Predict</button>
-
-<p id="result"></p>
+<button onclick="train()">Train & Save Model</button>
 
 <script>
-let model;
+async function train() {
+  const model = tf.sequential();
 
-async function loadModel() {
-  try {
-    model = await tf.loadLayersModel('model/model.json');
-    console.log("✅ Model Loaded");
-  } catch (error) {
-    console.error("❌ Error loading model:", error);
-  }
+  model.add(tf.layers.dense({units: 1, inputShape: [1]}));
+  model.compile({
+    loss: 'meanSquaredError',
+    optimizer: 'sgd'
+  });
+
+  const xs = tf.tensor2d([1, 2, 3, 4], [4, 1]);
+  const ys = tf.tensor2d([2, 4, 6, 8], [4, 1]);
+
+  await model.fit(xs, ys, {epochs: 100});
+
+  // 🔥 THIS LINE CREATES model.json + weights file
+  await model.save('downloads://model');
+
+  alert("Model downloaded!");
 }
-
-async function predict() {
-  if (!model) {
-    document.getElementById("result").innerText = "Model not loaded!";
-    return;
-  }
-
-  const value = document.getElementById("inputValue").value;
-
-  if (!value) {
-    document.getElementById("result").innerText = "Enter a value!";
-    return;
-  }
-
-  const input = tf.tensor2d([Number(value)], [1, 1]);
-  const output = model.predict(input);
-  const result = output.dataSync()[0];
-
-  document.getElementById("result").innerText = "Prediction: " + result;
-}
-
-loadModel();
 </script>
 
 </body>
