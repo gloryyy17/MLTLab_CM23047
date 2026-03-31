@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fruit Classifier</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+  <style>
+    body {
+      text-align: center;
+      font-family: Arial;
+    }
+    video {
+      width: 250px;
+      border-radius: 10px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>🍎 Fruit Classifier</h2>
+
+<video id="webcam" autoplay playsinline></video>
+
+<br>
+
+<button onclick="addExample(0)">Apple</button>
+<button onclick="addExample(1)">Banana</button>
+<button onclick="addExample(2)">Orange</button>
+
+<br><br>
+
+<button onclick="train()">Train</button>
+<button onclick="predict()">Predict</button>
+
+<h3 id="result">Result: </h3>
+
+<script>
+let net;
+let webcam;
+let xs = [];
+let ys = [];
+let model;
+
+async function init() {
+  try {
+    net = await mobilenet.load();
+
+    webcam = await tf.data.webcam(
+      document.getElementById("webcam")
+    );
+
+    console.log("✅ Ready");
+  } catch (err) {
+    console.error("❌ Error:", err);
+  }
+}
+
+async function addExample(label) {
+  const img = await webcam.capture();
+  const activation = net.infer(img, true);
+
+  xs.push(activation);
+  ys.push(label);
+
+  console.log("Added:", label);
+}
+
+async function train() {
+  if (xs.length === 0) {
+    alert("Add data first!");
+    return;
+  }
+
+  const xsTensor = tf.concat(xs);
+  const ysTensor = tf.oneHot(tf.tensor1d(ys, 'int32'), 3);
+
+  model = tf.sequential();
+  model.add(tf.layers.dense({
+    inputShape: [1024],
+    units: 100,
+    activation: 'relu'
+  }));
+  model.add(tf.layers.dense({
+    units: 3,
+    activation: 'softmax'
+  }));
+
+  model.compile({
+    optimizer: tf.train.adam(0.0001),
+    loss: 'categoricalCrossentropy'
+  });
+
+  await model.fit(xsTensor, ysTensor, {
+    epochs: 15
+  });
+
+  alert("✅ Training Done");
+}
+
+async function predict() {
+  if (!model) {
+    alert("Train model first!");
+    return;
+  }
+
+  const img = await webcam.capture();
+  const activation = net.infer(img, true);
+
+  const pred = model.predict(activation);
+  const result = pred.argMax(1).dataSync()[0];
+
+  const labels = ["Apple 🍎", "Banana 🍌", "Orange 🍊"];
+
+  document.getElementById("result").innerText =
+    "Result: " + labels[result];
+}
+
+init();
+</script>
+
+</body>
+</html>
