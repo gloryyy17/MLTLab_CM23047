@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Train & Save Model</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; padding: 40px; text-align: center; background: #f0f8ff; }
+  button { background:#007bff; color:white; padding: 12px 24px; border:none; border-radius: 8px; font-size: 16px; cursor:pointer; }
+  #status { margin-top: 20px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h2>Step 1: Train and Save Model</h2>
+<button id="trainSaveBtn">Train & Save Model</button>
+<div id="status">Status: Waiting</div>
+
+<script>
+  async function trainAndSaveModel() {
+    const status = document.getElementById('status');
+    status.innerText = "Status: Training model...";
+    
+    const model = tf.sequential();
+    model.add(tf.layers.dense({units: 1, inputShape: [1]}));
+    model.compile({loss: 'meanSquaredError', optimizer: 'adam'});
+    
+    // Dataset: y = 2x - 1
+    const xs = tf.tensor2d([1, 2, 3, 4], [4, 1]);
+    const ys = tf.tensor2d([1, 3, 5, 7], [4, 1]);
+    
+    await model.fit(xs, ys, {epochs: 300});
+    status.innerText = "Status: Model trained. Saving to LocalStorage...";
+    
+    await model.save('localstorage://my-tfjs-model');
+    status.innerText = "Status: Model saved to LocalStorage!";
+  }
+  
+  document.getElementById('trainSaveBtn').onclick = trainAndSaveModel;
+</script>
+
+</body>
+</html>
