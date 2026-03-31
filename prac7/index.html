@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ML Model Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+</head>
+<body>
+
+<h2>Prediction Test</h2>
+
+<input type="number" id="inputValue" placeholder="Enter a number">
+<button onclick="predict()">Predict</button>
+
+<p id="result"></p>
+
+<script>
+let model;
+
+async function loadModel() {
+  try {
+    model = await tf.loadLayersModel('model/model.json');
+    console.log("✅ Model Loaded");
+  } catch (error) {
+    console.error("❌ Error loading model:", error);
+  }
+}
+
+async function predict() {
+  if (!model) {
+    document.getElementById("result").innerText = "Model not loaded!";
+    return;
+  }
+
+  const value = document.getElementById("inputValue").value;
+
+  if (!value) {
+    document.getElementById("result").innerText = "Enter a value!";
+    return;
+  }
+
+  const input = tf.tensor2d([Number(value)], [1, 1]);
+  const output = model.predict(input);
+  const result = output.dataSync()[0];
+
+  document.getElementById("result").innerText = "Prediction: " + result;
+}
+
+loadModel();
+</script>
+
+</body>
+</html>
