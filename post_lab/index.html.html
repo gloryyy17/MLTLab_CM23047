@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GestureSlide — AI Presentation Control</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:opsz,wght@9..40,300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --border: rgba(255,255,255,0.08);
+    --border-hi: rgba(255,255,255,0.18);
+    --accent: #7c6dfa;
+    --accent2: #fa6d8a;
+    --accent3: #6dfabd;
+    --text: #f0eeff;
+    --text-muted: rgba(240,238,255,0.45);
+    --text-dim: rgba(240,238,255,0.25);
+    --slide-next: #7c6dfa;
+    --slide-prev: #fa6d8a;
+    --slide-pause: #6dfabd;
+    --slide-play: #fad06d;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid noise texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(124,109,250,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,109,250,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app-container {
+    position: relative;
+    z-index: 1;
+    max-width: 1300px;
+    margin: 0 auto;
+    padding: 1.5rem;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .logo-icon svg { width: 18px; height: 18px; }
+
+  .logo-name {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'Space Mono', monospace;
+    transition: all 0.3s;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #444;
+    transition: all 0.3s;
+  }
+
+  .status-pill.active .status-dot { background: var(--accent3); box-shadow: 0 0 6px var(--accent3); }
+  .status-pill.active { border-color: rgba(109,250,189,0.3); color: var(--accent3); }
+
+  /* Main layout */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 1.25rem;
+    align-items: start;
+  }
+
+  /* Slide area */
+  .slide-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .slide-stage {
+    aspect-ratio: 16/9;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem;
+    opacity: 0;
+    transform: translateX(100px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    pointer-events: none;
+  }
+
+  .slide.active {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .slide.exit-left {
+    opacity: 0;
+    transform: translateX(-100px);
+  }
+
+  .slide-tag {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+    font-weight: 700;
+  }
+
+  .slide h1 {
+    font-size: clamp(1.8rem, 3.5vw, 3rem);
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.15;
+    margin-bottom: 1rem;
+  }
+
+  .slide p {
+    font-size: clamp(0.9rem, 1.5vw, 1.1rem);
+    text-align: center;
+    color: var(--text-muted);
+    max-width: 600px;
+    line-height: 1.65;
+  }
+
+  .slide-number {
+    position: absolute;
+    bottom: 1rem;
+    right: 1.5rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  /* Slide controls bar */
+  .slide-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .slide-nav {
+    display: flex;
+    gap: 8px;
+  }
+
+  .nav-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .nav-btn:hover {
+    background: var(--surface);
+    border-color: var(--border-hi);
+    color: var(--text);
+  }
+
+  .progress-dots {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+
+  .dot.active {
+    background: var(--accent);
+    width: 20px;
+    border-radius: 3px;
+  }
+
+  .play-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    padding: 6px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .play-btn:hover { opacity: 0.85; }
+
+  /* Right panel */
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  /* Camera feed */
+  .camera-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .card-title {
+    font-size: 12px;
+    font-family: 'Space Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
+
+  .camera-wrap {
+    position: relative;
+    aspect-ratio: 4/3;
+    background: #000;
+    overflow: hidden;
+  }
+
+  #videoElement {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+
+  #videoElement.loaded { opacity: 1; }
+
+  #outputCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: scaleX(-1);
+  }
+
+  .camera-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+
+  .camera-placeholder svg { opacity: 0.3; }
+
+  /* Gesture indicator overlay */
+  .gesture-overlay {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-hi);
+    border-radius: 100px;
+    padding: 5px 14px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--text);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+
+  .gesture-overlay.show { opacity: 1; }
+
+  /* Gesture guide */
+  .gesture-guide {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .gesture-list {
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .gesture-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+  }
+
+  .gesture-item.triggered {
+    background: rgba(124,109,250,0.08);
+    border-color: rgba(124,109,250,0.25);
+  }
+
+  .gesture-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .gesture-info { flex: 1; }
+
+  .gesture-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
+  .gesture-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'Space Mono', monospace;
+  }
+
+  .gesture-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Action log */
+  .action-log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .log-feed {
+    padding: 0.75rem;
+    max-height: 130px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 4px;
+  }
+
+  .log-feed::-webkit-scrollbar { width: 3px; }
+  .log-feed::-webkit-scrollbar-track { background: transparent; }
+  .log-feed::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+  .log-entry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'Space Mono', monospace;
+    animation: slideIn 0.25s ease;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .log-time { color: var(--text-dim); font-size: 10px; }
+  .log-icon { font-size: 14px; }
+  .log-msg { color: var(--text-muted); }
+  .log-msg span { color: var(--text); }
+
+  /* Start overlay */
+  .start-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    transition: opacity 0.5s, visibility 0.5s;
+  }
+
+  .start-overlay.hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .start-content {
+    text-align: center;
+    max-width: 480px;
+  }
+
+  .start-badge {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    border: 1px solid rgba(124,109,250,0.4);
+    border-radius: 100px;
+    padding: 5px 14px;
+    margin-bottom: 1.5rem;
+  }
+
+  .start-title {
+    font-size: 3rem;
+    font-weight: 600;
+    line-height: 1.1;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .start-sub {
+    font-size: 1rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-bottom: 2rem;
+  }
+
+  .start-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    padding: 14px 36px;
+    font-size: 15px;
+    font-weight: 600;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .start-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(124,109,250,0.4);
+  }
+
+  .permissions-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* Gesture flash on slide */
+  .gesture-flash {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: 16px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .gesture-flash.flash {
+    opacity: 1;
+    animation: flashOut 0.5s ease forwards;
+  }
+
+  @keyframes flashOut {
+    0% { opacity: 0.15; }
+    100% { opacity: 0; }
+  }
+
+  /* Confidence bar */
+  .confidence-wrap {
+    padding: 0.75rem 1.1rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .confidence-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  .confidence-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .confidence-fill {
+    height: 100%;
+    background: var(--accent3);
+    border-radius: 3px;
+    transition: width 0.15s;
+    width: 0%;
+  }
+
+  .confidence-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    min-width: 28px;
+    text-align: right;
+  }
+
+  /* Slide themes */
+  .slide-1 { background: linear-gradient(135deg, #0a0a1f 0%, #1a0a2e 100%); }
+  .slide-1 .slide-tag { background: rgba(124,109,250,0.15); color: var(--accent); }
+  .slide-1 h1 { color: #e8e4ff; }
+
+  .slide-2 { background: linear-gradient(135deg, #0a1a0f 0%, #0f2a1a 100%); }
+  .slide-2 .slide-tag { background: rgba(109,250,189,0.12); color: var(--accent3); }
+  .slide-2 h1 { color: #e0fff2; }
+
+  .slide-3 { background: linear-gradient(135deg, #1a0a10 0%, #2a0f18 100%); }
+  .slide-3 .slide-tag { background: rgba(250,109,138,0.12); color: var(--accent2); }
+  .slide-3 h1 { color: #ffe0e8; }
+
+  .slide-4 { background: linear-gradient(135deg, #0f0f0a 0%, #1a1a0f 100%); }
+  .slide-4 .slide-tag { background: rgba(250,208,109,0.12); color: #fad06d; }
+  .slide-4 h1 { color: #fff8e0; }
+
+  .slide-5 { background: linear-gradient(135deg, #08101a 0%, #0f1a2a 100%); }
+  .slide-5 .slide-tag { background: rgba(109,189,250,0.12); color: #6db9fa; }
+  .slide-5 h1 { color: #e0f0ff; }
+
+  .slide-6 { background: linear-gradient(135deg, #0a0a0f 0%, #1a1a26 100%); }
+  .slide-6 .slide-tag { background: rgba(200,180,255,0.12); color: #c8b4ff; }
+  .slide-6 h1 { color: var(--text); }
+
+  /* Feature bullets on slides */
+  .slide-bullets {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 1.5rem;
+    text-align: left;
+    width: 100%;
+    max-width: 560px;
+  }
+
+  .bullet {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: clamp(0.8rem, 1.2vw, 0.95rem);
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .bullet-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .right-panel { display: grid; grid-template-columns: 1fr 1fr; }
+    .action-log { grid-column: 1 / -1; }
+  }
+
+  @media (max-width: 600px) {
+    .right-panel { grid-template-columns: 1fr; }
+    .start-title { font-size: 2rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Start overlay -->
+<div class="start-overlay" id="startOverlay">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%, rgba(124,109,250,0.08) 0%, transparent 70%);pointer-events:none;"></div>
+  <div class="start-content">
+    <div class="start-badge">AI-Powered · No Backend · Real-Time</div>
+    <h1 class="start-title">GestureSlide</h1>
+    <p class="start-sub">Control your presentations with hand gestures. Point left or right to navigate, open your palm to pause, make a fist to play — all powered by MediaPipe Hands running entirely in your browser.</p>
+    <button class="start-btn" onclick="initCamera()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      Enable Camera & Start
+    </button>
+    <p class="permissions-note" style="margin-top:1rem;">Camera access required · All processing is local · No data sent anywhere</p>
+  </div>
+  <div style="display:flex;gap:2rem;flex-wrap:wrap;justify-content:center;">
+    <div style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:4px;">👆</div>
+      <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Point Right → Next</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:4px;">☝️</div>
+      <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Point Left → Prev</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:4px;">🤚</div>
+      <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Open Palm → Pause</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:2rem;margin-bottom:4px;">✊</div>
+      <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Fist → Play</div>
+    </div>
+  </div>
+</div>
+
+<!-- Main app -->
+<div class="app-container">
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M18 11V6l-3 3M6 13v5l3-3"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+      <span class="logo-name">GestureSlide</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div class="status-pill" id="statusPill">
+        <div class="status-dot"></div>
+        <span id="statusText">Initializing...</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="main-grid">
+    <!-- Slide area -->
+    <div>
+      <div class="slide-container">
+        <div class="slide-stage" id="slideStage">
+
+          <!-- Slides -->
+          <div class="slide slide-1 active" id="slide-0">
+            <div class="slide-tag">Welcome</div>
+            <h1>Control Presentations<br>With Your Hands</h1>
+            <p>GestureSlide uses MediaPipe Hands and TensorFlow.js to recognize your gestures in real time — no mouse, no keyboard, just natural movement.</p>
+            <div class="slide-number">01 / 06</div>
+          </div>
+
+          <div class="slide slide-2" id="slide-1">
+            <div class="slide-tag">Technology</div>
+            <h1>Powered by<br>MediaPipe Hands</h1>
+            <p>21-point hand landmark detection running at 30fps directly in your browser. Zero latency, zero backend, complete privacy.</p>
+            <div class="slide-bullets">
+              <div class="bullet"><div class="bullet-dot" style="background:var(--accent3)"></div><span>Sub-20ms inference on modern devices</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:var(--accent3)"></div><span>Works in any lighting condition</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:var(--accent3)"></div><span>No data ever leaves your device</span></div>
+            </div>
+            <div class="slide-number">02 / 06</div>
+          </div>
+
+          <div class="slide slide-3" id="slide-2">
+            <div class="slide-tag">Gestures</div>
+            <h1>Four Intuitive<br>Controls</h1>
+            <p>Point left or right to navigate slides. Open your palm to pause the flow. Make a fist to resume. Gestures are confirmed after a brief hold to prevent accidental triggers.</p>
+            <div class="slide-bullets">
+              <div class="bullet"><div class="bullet-dot" style="background:var(--accent2)"></div><span>Pointing index finger detects direction</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:var(--accent2)"></div><span>Open palm with spread fingers = pause</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:var(--accent2)"></div><span>Closed fist = resume playback</span></div>
+            </div>
+            <div class="slide-number">03 / 06</div>
+          </div>
+
+          <div class="slide slide-4" id="slide-3">
+            <div class="slide-tag">Applications</div>
+            <h1>Real-World<br>Use Cases</h1>
+            <p>Designed for environments where touching a device is impractical, unsafe, or simply undesirable.</p>
+            <div class="slide-bullets">
+              <div class="bullet"><div class="bullet-dot" style="background:#fad06d"></div><span>Smart classrooms & lecture halls</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:#fad06d"></div><span>Surgical & medical environments</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:#fad06d"></div><span>Accessibility for motor-impaired users</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:#fad06d"></div><span>Conference & boardroom presentations</span></div>
+            </div>
+            <div class="slide-number">04 / 06</div>
+          </div>
+
+          <div class="slide slide-5" id="slide-4">
+            <div class="slide-tag">Architecture</div>
+            <h1>Fully Client-Side<br>ML Pipeline</h1>
+            <p>The entire inference stack runs in WebAssembly and WebGL, leveraging your GPU for accelerated landmark detection without any server round-trips.</p>
+            <div class="slide-bullets">
+              <div class="bullet"><div class="bullet-dot" style="background:#6db9fa"></div><span>MediaPipe Hands → 21 landmark points</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:#6db9fa"></div><span>Geometric classifier → gesture label</span></div>
+              <div class="bullet"><div class="bullet-dot" style="background:#6db9fa"></div><span>Debounce logic → confirmed action</span></div>
+            </div>
+            <div class="slide-number">05 / 06</div>
+          </div>
+
+          <div class="slide slide-6" id="slide-5">
+            <div class="slide-tag">Get Started</div>
+            <h1>You're in Control</h1>
+            <p>Point your index finger to the right to go back to the beginning. The camera feed is live — raise your hand and try it now.</p>
+            <div style="margin-top:1.5rem;display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+              <div style="background:rgba(124,109,250,0.1);border:1px solid rgba(124,109,250,0.25);border-radius:10px;padding:12px 20px;text-align:center;">
+                <div style="font-size:1.5rem;margin-bottom:4px;">👉</div>
+                <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Next slide</div>
+              </div>
+              <div style="background:rgba(250,109,138,0.1);border:1px solid rgba(250,109,138,0.25);border-radius:10px;padding:12px 20px;text-align:center;">
+                <div style="font-size:1.5rem;margin-bottom:4px;">👈</div>
+                <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Previous slide</div>
+              </div>
+              <div style="background:rgba(109,250,189,0.1);border:1px solid rgba(109,250,189,0.25);border-radius:10px;padding:12px 20px;text-align:center;">
+                <div style="font-size:1.5rem;margin-bottom:4px;">🤚</div>
+                <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Pause</div>
+              </div>
+              <div style="background:rgba(250,208,109,0.1);border:1px solid rgba(250,208,109,0.25);border-radius:10px;padding:12px 20px;text-align:center;">
+                <div style="font-size:1.5rem;margin-bottom:4px;">✊</div>
+                <div style="font-size:12px;color:var(--text-muted);font-family:'Space Mono',monospace;">Play</div>
+              </div>
+            </div>
+            <div class="slide-number">06 / 06</div>
+          </div>
+
+          <!-- Flash overlay -->
+          <div class="gesture-flash" id="gestureFlash"></div>
+        </div>
+
+        <div class="slide-controls">
+          <div class="slide-nav">
+            <button class="nav-btn" onclick="prevSlide()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+              Prev
+            </button>
+            <button class="nav-btn" onclick="nextSlide()">
+              Next
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+            </button>
+          </div>
+          <div class="progress-dots" id="progressDots"></div>
+          <button class="play-btn" id="playBtn" onclick="togglePlay()">
+            <svg id="playIcon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span id="playLabel">Auto-Play</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div class="right-panel">
+      <!-- Camera -->
+      <div class="camera-card">
+        <div class="card-header">
+          <span class="card-title">Camera Feed</span>
+          <div class="status-pill" id="camStatus">
+            <div class="status-dot"></div>
+            <span>Offline</span>
+          </div>
+        </div>
+        <div class="camera-wrap">
+          <div class="camera-placeholder" id="cameraPlaceholder">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            <span>Camera offline</span>
+          </div>
+          <video id="videoElement" autoplay playsinline muted></video>
+          <canvas id="outputCanvas"></canvas>
+          <div class="gesture-overlay" id="gestureOverlay">— no hand detected —</div>
+        </div>
+        <div class="confidence-wrap">
+          <span class="confidence-label">Confidence</span>
+          <div class="confidence-bar"><div class="confidence-fill" id="confidenceFill"></div></div>
+          <span class="confidence-val" id="confidenceVal">—</span>
+        </div>
+      </div>
+
+      <!-- Gesture guide -->
+      <div class="gesture-guide">
+        <div class="card-header">
+          <span class="card-title">Gestures</span>
+        </div>
+        <div class="gesture-list">
+          <div class="gesture-item" id="gest-next">
+            <div class="gesture-icon">👉</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Point Right</div>
+              <div class="gesture-desc">index extended →</div>
+            </div>
+            <div class="gesture-badge" style="background:rgba(124,109,250,0.12);color:var(--accent);">NEXT</div>
+          </div>
+          <div class="gesture-item" id="gest-prev">
+            <div class="gesture-icon">👈</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Point Left</div>
+              <div class="gesture-desc">index extended ←</div>
+            </div>
+            <div class="gesture-badge" style="background:rgba(250,109,138,0.12);color:var(--accent2);">PREV</div>
+          </div>
+          <div class="gesture-item" id="gest-pause">
+            <div class="gesture-icon">🤚</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Open Palm</div>
+              <div class="gesture-desc">all fingers extended</div>
+            </div>
+            <div class="gesture-badge" style="background:rgba(109,250,189,0.12);color:var(--accent3);">PAUSE</div>
+          </div>
+          <div class="gesture-item" id="gest-play">
+            <div class="gesture-icon">✊</div>
+            <div class="gesture-info">
+              <div class="gesture-name">Closed Fist</div>
+              <div class="gesture-desc">all fingers curled</div>
+            </div>
+            <div class="gesture-badge" style="background:rgba(250,208,109,0.12);color:#fad06d;">PLAY</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action log -->
+      <div class="action-log">
+        <div class="card-header">
+          <span class="card-title">Action Log</span>
+          <button onclick="document.getElementById('logFeed').innerHTML=''" style="background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;font-family:'Space Mono',monospace;">clear</button>
+        </div>
+        <div class="log-feed" id="logFeed">
+          <div class="log-entry">
+            <span class="log-time">—</span>
+            <span class="log-msg">Awaiting camera...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// === State ===
+let currentSlide = 0;
+const TOTAL_SLIDES = 6;
+let isPlaying = false;
+let autoPlayTimer = null;
+let handsModel = null;
+let cameraRunning = false;
+
+// Gesture debounce
+let lastGestureTime = 0;
+let currentGestureLabel = null;
+let gestureHoldStart = 0;
+const GESTURE_COOLDOWN = 1200;
+const GESTURE_HOLD_MS = 500;
+
+// Build progress dots
+const dotsEl = document.getElementById('progressDots');
+for (let i = 0; i < TOTAL_SLIDES; i++) {
+  const d = document.createElement('div');
+  d.className = 'dot' + (i === 0 ? ' active' : '');
+  d.onclick = () => goToSlide(i);
+  dotsEl.appendChild(d);
+}
+
+// === Slide navigation ===
+function goToSlide(idx, direction = 'forward') {
+  if (idx < 0 || idx >= TOTAL_SLIDES) return;
+
+  const current = document.getElementById('slide-' + currentSlide);
+  const next = document.getElementById('slide-' + idx);
+
+  current.classList.remove('active');
+  if (direction === 'backward') {
+    current.style.transform = 'translateX(100px)';
+    next.style.transform = 'translateX(-100px)';
+  } else {
+    current.style.transform = 'translateX(-100px)';
+    next.style.transform = 'translateX(100px)';
+  }
+
+  setTimeout(() => {
+    next.style.transition = 'none';
+    // force reflow
+    next.getBoundingClientRect();
+    next.style.transition = '';
+    next.classList.add('active');
+    next.style.transform = '';
+  }, 10);
+
+  currentSlide = idx;
+
+  document.querySelectorAll('.dot').forEach((d, i) => {
+    d.classList.toggle('active', i === idx);
+  });
+}
+
+function nextSlide() {
+  if (currentSlide < TOTAL_SLIDES - 1) {
+    goToSlide(currentSlide + 1, 'forward');
+    flashSlide(getComputedStyle(document.documentElement).getPropertyValue('--accent'));
+    addLog('👉', 'Navigated to <span>slide ' + (currentSlide + 1) + '</span>');
+  }
+}
+
+function prevSlide() {
+  if (currentSlide > 0) {
+    goToSlide(currentSlide - 1, 'backward');
+    flashSlide(getComputedStyle(document.documentElement).getPropertyValue('--accent2'));
+    addLog('👈', 'Back to <span>slide ' + (currentSlide + 1) + '</span>');
+  }
+}
+
+function flashSlide(color) {
+  const flash = document.getElementById('gestureFlash');
+  flash.style.background = color || '#7c6dfa';
+  flash.classList.remove('flash');
+  void flash.offsetWidth;
+  flash.classList.add('flash');
+}
+
+// === Auto-play ===
+function togglePlay() {
+  isPlaying = !isPlaying;
+  const icon = document.getElementById('playIcon');
+  const label = document.getElementById('playLabel');
+  if (isPlaying) {
+    icon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+    label.textContent = 'Pause';
+    addLog('▶', 'Auto-play <span>started</span>');
+    startAutoPlay();
+  } else {
+    icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+    label.textContent = 'Auto-Play';
+    clearInterval(autoPlayTimer);
+    addLog('⏸', 'Auto-play <span>paused</span>');
+  }
+}
+
+function pausePresentation() {
+  if (isPlaying) {
+    isPlaying = false;
+    document.getElementById('playIcon').innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+    document.getElementById('playLabel').textContent = 'Auto-Play';
+    clearInterval(autoPlayTimer);
+    flashSlide('#6dfabd');
+    addLog('🤚', 'Presentation <span>paused</span>');
+  }
+}
+
+function resumePresentation() {
+  if (!isPlaying) {
+    isPlaying = true;
+    document.getElementById('playIcon').innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+    document.getElementById('playLabel').textContent = 'Pause';
+    startAutoPlay();
+    flashSlide('#fad06d');
+    addLog('✊', 'Presentation <span>resumed</span>');
+  }
+}
+
+function startAutoPlay() {
+  clearInterval(autoPlayTimer);
+  autoPlayTimer = setInterval(() => {
+    if (currentSlide < TOTAL_SLIDES - 1) {
+      goToSlide(currentSlide + 1);
+    } else {
+      goToSlide(0);
+    }
+  }, 4000);
+}
+
+// === Action log ===
+function addLog(icon, msg) {
+  const feed = document.getElementById('logFeed');
+  const now = new Date();
+  const time = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + ':' + now.getSeconds().toString().padStart(2,'0');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${time}</span><span class="log-icon">${icon}</span><span class="log-msg">${msg}</span>`;
+  feed.insertBefore(entry, feed.firstChild);
+  if (feed.children.length > 20) feed.removeChild(feed.lastChild);
+}
+
+// === Gesture detection helpers ===
+function fingersExtended(landmarks) {
+  // Returns array: [thumb, index, middle, ring, pinky]
+  const tips = [4, 8, 12, 16, 20];
+  const pips = [3, 6, 10, 14, 18];
+  const extended = [];
+
+  // Thumb: compare x position
+  extended.push(landmarks[tips[0]].x < landmarks[pips[0]].x);
+
+  // Other fingers: tip y < pip y means extended (in normalized coords, y increases downward)
+  for (let i = 1; i < 5; i++) {
+    extended.push(landmarks[tips[i]].y < landmarks[pips[i]].y);
+  }
+  return extended;
+}
+
+function classifyGesture(landmarks) {
+  const ext = fingersExtended(landmarks);
+  const [thumb, index, middle, ring, pinky] = ext;
+
+  // Open palm: all 4 fingers extended
+  if (index && middle && ring && pinky) return 'pause';
+
+  // Closed fist: no fingers extended
+  if (!index && !middle && !ring && !pinky) return 'fist';
+
+  // Only index extended — check direction
+  if (index && !middle && !ring && !pinky) {
+    const indexMcp = landmarks[5];   // index finger knuckle (base)
+    const indexTip = landmarks[8];   // index finger tip
+    const dx = indexTip.x - indexMcp.x;
+    const dy = indexTip.y - indexMcp.y;
+    // Canvas is mirrored (scaleX(-1)), so raw coords are also flipped:
+    // raw dx > 0 means tip is to the RIGHT in camera = LEFT on mirrored screen → prev
+    // raw dx < 0 means tip is to the LEFT in camera = RIGHT on mirrored screen → next
+    // Only classify as horizontal if |dx| dominates |dy| (not pointing up/down)
+    if (Math.abs(dx) > Math.abs(dy) * 0.8) {
+      if (dx > 0.06) return 'point-left';   // user's hand points to their left → Prev
+      if (dx < -0.06) return 'point-right'; // user's hand points to their right → Next
+    }
+    return 'point-up';
+  }
+
+  return 'none';
+}
+
+function setGestureHighlight(gestureId) {
+  document.querySelectorAll('.gesture-item').forEach(el => el.classList.remove('triggered'));
+  if (gestureId) {
+    const el = document.getElementById(gestureId);
+    if (el) el.classList.add('triggered');
+  }
+}
+
+// === Gesture action dispatch ===
+function dispatchGesture(gesture) {
+  const now = Date.now();
+  if (now - lastGestureTime < GESTURE_COOLDOWN) return;
+  lastGestureTime = now;
+
+  if (gesture === 'point-right') {
+    nextSlide();
+    setGestureHighlight('gest-next');
+  } else if (gesture === 'point-left') {
+    prevSlide();
+    setGestureHighlight('gest-prev');
+  } else if (gesture === 'pause') {
+    pausePresentation();
+    setGestureHighlight('gest-pause');
+  } else if (gesture === 'fist') {
+    resumePresentation();
+    setGestureHighlight('gest-play');
+  }
+
+  setTimeout(() => setGestureHighlight(null), 800);
+}
+
+// === Gesture debounce (hold detection) ===
+function processGesture(gesture) {
+  const overlay = document.getElementById('gestureOverlay');
+
+  if (gesture === 'none') {
+    currentGestureLabel = null;
+    gestureHoldStart = 0;
+    overlay.textContent = '— no gesture —';
+    overlay.classList.remove('show');
+    setConfidence(0);
+    return;
+  }
+
+  const labels = {
+    'pause': '🤚 Open Palm — Pause',
+    'fist': '✊ Closed Fist — Play',
+    'point-right': '👉 Point Right — Next Slide',
+    'point-left': '👈 Point Left — Prev Slide',
+    'point-up': '☝️ Pointing Up',
+  };
+
+  overlay.textContent = labels[gesture] || gesture;
+  overlay.classList.add('show');
+
+  if (gesture !== currentGestureLabel) {
+    currentGestureLabel = gesture;
+    gestureHoldStart = Date.now();
+    setConfidence(10);
+    return;
+  }
+
+  const held = Date.now() - gestureHoldStart;
+  const pct = Math.min(100, Math.round((held / GESTURE_HOLD_MS) * 100));
+  setConfidence(pct);
+
+  if (held >= GESTURE_HOLD_MS) {
+    dispatchGesture(gesture);
+    gestureHoldStart = Date.now() + GESTURE_COOLDOWN;
+    setConfidence(0);
+  }
+}
+
+function setConfidence(pct) {
+  document.getElementById('confidenceFill').style.width = pct + '%';
+  document.getElementById('confidenceVal').textContent = pct > 0 ? pct + '%' : '—';
+}
+
+// === MediaPipe setup ===
+async function initCamera() {
+  document.getElementById('startOverlay').classList.add('hidden');
+  addLog('🎥', 'Requesting camera <span>access...</span>');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+    });
+
+    const video = document.getElementById('videoElement');
+    video.srcObject = stream;
+
+    video.onloadedmetadata = () => {
+      video.classList.add('loaded');
+      document.getElementById('cameraPlaceholder').style.display = 'none';
+
+      const canvas = document.getElementById('outputCanvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      updateStatus('camera', true);
+      addLog('✅', 'Camera <span>connected</span>');
+      initMediaPipe(video, canvas);
+    };
+  } catch (err) {
+    addLog('❌', 'Camera error: <span>' + err.message + '</span>');
+    updateStatus('camera', false);
+  }
+}
+
+function updateStatus(type, active) {
+  const pill = document.getElementById('statusPill');
+  const text = document.getElementById('statusText');
+  const camPill = document.getElementById('camStatus');
+
+  if (type === 'camera') {
+    camPill.classList.toggle('active', active);
+    camPill.querySelector('.status-dot').style.background = active ? 'var(--accent3)' : '#444';
+    camPill.querySelector('span').textContent = active ? 'Live' : 'Offline';
+  }
+
+  if (type === 'hands') {
+    pill.classList.toggle('active', active);
+    text.textContent = active ? 'Tracking Active' : 'Initializing...';
+  }
+}
+
+function initMediaPipe(video, canvas) {
+  addLog('🤖', 'Loading <span>MediaPipe Hands...</span>');
+
+  const hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.6
+  });
+
+  hands.onResults((results) => {
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const landmarks = results.multiHandLandmarks[0];
+
+      // Draw connections
+      drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {
+        color: 'rgba(124,109,250,0.6)',
+        lineWidth: 2
+      });
+
+      // Draw landmarks
+      drawLandmarks(ctx, landmarks, {
+        color: 'rgba(250,109,138,0.9)',
+        lineWidth: 1,
+        radius: 3
+      });
+
+      const gesture = classifyGesture(landmarks);
+      processGesture(gesture);
+    } else {
+      processGesture('none');
+    }
+
+    ctx.restore();
+  });
+
+  handsModel = hands;
+
+  // Use camera_utils for frame loop
+  const camera = new Camera(video, {
+    onFrame: async () => {
+      if (handsModel) await handsModel.send({ image: video });
+    },
+    width: 640,
+    height: 480
+  });
+
+  camera.start().then(() => {
+    updateStatus('hands', true);
+    addLog('🧠', 'Hand tracking <span>active</span>');
+  }).catch(err => {
+    addLog('⚠️', 'MediaPipe error: <span>' + err.message + '</span>');
+    // Fallback: manual requestAnimationFrame loop
+    startManualLoop(video, hands);
+  });
+}
+
+function startManualLoop(video, hands) {
+  updateStatus('hands', true);
+  addLog('🧠', 'Hand tracking <span>active (fallback)</span>');
+
+  async function loop() {
+    if (video.readyState === 4) {
+      await hands.send({ image: video });
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+// === Keyboard fallback ===
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') nextSlide();
+  if (e.key === 'ArrowLeft') prevSlide();
+  if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+});
+</script>
+</body>
+</html>
